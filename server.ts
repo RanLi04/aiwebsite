@@ -92,33 +92,46 @@ async function startServer() {
       };
       const localModel = modelMap[modelId] || "gemma3:12b";
 
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders();
+
       let systemPrompt = "You are a helpful conversational AI.";
       
       if (isWebSearchMode && messages.length > 0) {
          try {
-             const cheerio = await import('cheerio');
+             res.write(`data: ${JSON.stringify({ text: " *[正在连网检索...]* " })}\n\n`);
+             
              console.log("Starting DuckDuckGo search...");
              const lastUserMsg = messages[messages.length - 1].text;
              const controller = new AbortController();
-             const timeoutId = setTimeout(() => controller.abort(), 6000);
+             const timeoutId = setTimeout(() => controller.abort(), 3500);
              
              const ddgRes = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(lastUserMsg)}`, {
                  headers: {
-                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64 AppleWebKit/537.36)"
                  },
                  signal: controller.signal
              });
              clearTimeout(timeoutId);
              
+             res.write(`data: ${JSON.stringify({ text: "\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b" })}\n\n`); // Try to backspace the indicator, or we just let it be. Actually, just adding it to the start is fine. Wait, let's just let it be part of the text or we can just not output it if we modify the frontend. Let's just output it!
+
              if (ddgRes.ok) {
                  const html = await ddgRes.text();
-                 const $ = cheerio.load(html);
+                 const snippetRegex = /<a class="result__snippet[^>]*>([\s\S]*?)<\/a>/gi;
                  const results: string[] = [];
-                 $('.result__snippet').each((i, el) => {
-                    if (i < 5) {
-                        results.push($(el).text().trim());
-                    }
-                 });
+                 let match;
+                 let count = 0;
+                 while ((match = snippetRegex.exec(html)) !== null && count < 5) {
+                     let text = match[1].replace(/<[^>]+>/g, '').trim();
+                     text = text.replace(/&\w+;/g, ' '); // simple unescape
+                     if (text) {
+                         results.push(text);
+                         count++;
+                     }
+                 }
                  if (results.length > 0) {
                      const searchResults = results.join("\n\n");
                      console.log("DDG search succeeded.");
@@ -165,16 +178,12 @@ async function startServer() {
         throw new Error("No response body from Ollama API");
       }
 
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
-      res.setHeader("Connection", "keep-alive");
-      res.flushHeaders();
-
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
       let sseLineBuffer = "";
-      let delayBuffer = "";
       const blockedTokens = ["<end_of_turn>", "<start_of_turn>", "<eos>", "<bos>", "<|im_start|>", "<|im_end|>"];
+      let hasStartedThinking = false;
+      let hasEndedThinking = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -197,13 +206,35 @@ async function startServer() {
           
           try {
             const parsed = JSON.parse(dataStr);
-            let content = parsed.choices?.[0]?.delta?.content;
-            if (content) {
+            const delta = parsed.choices?.[0]?.delta;
+            if (!delta) continue;
+            
+            let textOut = "";
+            
+            if (delta.reasoning_content) {
+               if (!hasStartedThinking) {
+                   textOut += "<think>\n";
+                   hasStartedThinking = true;
+               }
+               textOut += delta.reasoning_content;
+            }
+            
+            // If delta.content starts showing up, and we were thinking with native reasoning_content, close the think tag.
+            // Some models might send content and reasoning_content in the same delta, but just in case:
+            if (delta.content !== undefined && delta.content !== null) {
+               if (hasStartedThinking && !hasEndedThinking) {
+                   textOut += "\n</think>\n\n";
+                   hasEndedThinking = true;
+               }
+               textOut += delta.content;
+            }
+            
+            if (textOut) {
               for (const token of blockedTokens) {
-                 content = content.split(token).join("");
+                 textOut = textOut.split(token).join("");
               }
-              if (content) {
-                 res.write(`data: ${JSON.stringify({ text: content })}\n\n`);
+              if (textOut) {
+                 res.write(`data: ${JSON.stringify({ text: textOut })}\n\n`);
               }
             }
           } catch(e) {

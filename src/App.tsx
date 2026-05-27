@@ -39,25 +39,30 @@ function MessageContentComponent({ text, isStreaming, isLast }: { text: string, 
     }
   }
 
+  // Determine if we should show the thinking block. 
+  // If it's streaming and we haven't received anything yet, we can pretend it's thinking to give the user peace of mind.
+  const showThinkingBlock = thinkStart !== -1 || (isStreaming && !text);
+  const isCurrentlyThinking = isThinking || (isStreaming && !text);
+
   return (
     <div className="flex flex-col gap-3 w-full">
-      {thinkStart !== -1 && (
+      {showThinkingBlock && (
         <div className="rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 overflow-hidden mt-1 mb-2">
           <button 
             onClick={() => setIsExpanded(!isExpanded)}
             className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold opacity-60 hover:opacity-100 transition-opacity"
           >
             <div className="flex items-center gap-2">
-              <Sparkles className={cn("h-3.5 w-3.5", isThinking ? "animate-pulse text-indigo-500" : "")} />
-              <span>{isThinking ? "深度思考中..." : "已完成思考"}</span>
+              <Sparkles className={cn("h-3.5 w-3.5", isCurrentlyThinking ? "animate-pulse text-indigo-500" : "")} />
+              <span>{isCurrentlyThinking ? (text ? "深度思考中..." : "引擎启动与深度思考中...") : "已完成思考"}</span>
             </div>
             <ChevronDown className={cn("h-4 w-4 transition-transform duration-300", isExpanded ? "rotate-180" : "")} />
           </button>
           
-          {isExpanded && thinkText && (
+          {isExpanded && (thinkText || (!text && isStreaming)) && (
             <div className="px-4 py-3 text-[13px] opacity-70 border-t border-black/10 dark:border-white/10 font-mono whitespace-pre-wrap leading-relaxed">
-              {thinkText}
-              {isThinking && <span className="inline-block w-2 h-3 bg-current ml-1 animate-pulse align-middle"></span>}
+              {thinkText || (isStreaming && !text ? "正在加载模型并生成思考过程，请稍候..." : "")}
+              {isCurrentlyThinking && <span className="inline-block w-2 h-3 bg-current ml-1 animate-pulse align-middle"></span>}
             </div>
           )}
         </div>
