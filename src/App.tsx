@@ -10,6 +10,72 @@ function cn(...inputs: (string | undefined | null | false)[]) {
   return twMerge(clsx(inputs));
 }
 
+function MessageContentComponent({ text, isStreaming, isLast }: { text: string, isStreaming: boolean, isLast: boolean }) {
+  const thinkStart = text.indexOf("<think>");
+  const thinkEnd = text.indexOf("</think>", thinkStart);
+  
+  const isThinking = isStreaming && isLast && thinkStart !== -1 && thinkEnd === -1;
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  useEffect(() => {
+    if (isThinking) {
+      setIsExpanded(true);
+    } else if (thinkEnd !== -1 && isLast && isStreaming) {
+      setIsExpanded(false);
+    }
+  }, [isThinking, thinkEnd !== -1, isLast, isStreaming]);
+
+  let thinkText = "";
+  let mainText = text;
+  
+  if (thinkStart !== -1) {
+    if (thinkEnd !== -1) {
+      thinkText = text.substring(thinkStart + 7, thinkEnd).trim();
+      mainText = (text.substring(0, thinkStart) + text.substring(thinkEnd + 8)).trim();
+    } else {
+      thinkText = text.substring(thinkStart + 7).trim();
+      mainText = text.substring(0, thinkStart).trim();
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 w-full">
+      {thinkStart !== -1 && (
+        <div className="rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 overflow-hidden mt-1 mb-2">
+          <button 
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold opacity-60 hover:opacity-100 transition-opacity"
+          >
+            <div className="flex items-center gap-2">
+              <Sparkles className={cn("h-3.5 w-3.5", isThinking ? "animate-pulse text-indigo-500" : "")} />
+              <span>{isThinking ? "深度思考中..." : "已完成思考"}</span>
+            </div>
+            <ChevronDown className={cn("h-4 w-4 transition-transform duration-300", isExpanded ? "rotate-180" : "")} />
+          </button>
+          
+          {isExpanded && thinkText && (
+            <div className="px-4 py-3 text-[13px] opacity-70 border-t border-black/10 dark:border-white/10 font-mono whitespace-pre-wrap leading-relaxed">
+              {thinkText}
+              {isThinking && <span className="inline-block w-2 h-3 bg-current ml-1 animate-pulse align-middle"></span>}
+            </div>
+          )}
+        </div>
+      )}
+      
+      {mainText && (
+        <div className="markdown-body prose prose-zinc dark:prose-invert max-w-none prose-p:my-1 prose-p:text-zinc-900 dark:prose-p:text-zinc-100 prose-headings:text-zinc-900 dark:prose-headings:text-zinc-100 prose-pre:bg-black/5 dark:prose-pre:bg-white/10 prose-pre:backdrop-blur-md prose-pre:border-black/5 dark:prose-pre:border-white/5 prose-pre:border">
+           <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {mainText}
+           </ReactMarkdown>
+        </div>
+      )}
+      {isStreaming && isLast && !isThinking && mainText && (
+        <span className="inline-block w-2 h-4 bg-current opacity-50 -ml-1 animate-pulse align-middle mt-2"></span>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [theme, setTheme] = useState<Theme>("dark");
   const [pageMode, setPageMode] = useState<PageMode>("fenghechat");
@@ -116,7 +182,8 @@ export default function App() {
     if (!input.trim() || isStreaming) return;
 
     const userMessage: Message = { id: Date.now().toString(), role: "user", text: input.trim() };
-    setMessages((prev) => [...prev, userMessage]);
+    const currentMessages = [...messages, userMessage];
+    setMessages(currentMessages);
     setInput("");
     if (textareaRef.current) {
         textareaRef.current.style.height = '48px';
@@ -126,21 +193,64 @@ export default function App() {
     const modelMessageId = (Date.now() + 1).toString();
     setMessages((prev) => [...prev, { id: modelMessageId, role: "model", text: "" }]);
 
-    const responseText = "没问题。这里是一个使用 Python 的 os 模块来批量重命名目录下所有图片文件的脚本：\n\n```python\nimport os\n\ndef batch_rename():\n    count = 1\n    for filename in os.listdir('.'):\n        if filename.endswith('.png'):\n            os.rename(filename, f\"image_{count}.png\")\n            count += 1\n```\n\n这段代码非常简单高效，您可以直接复制使用。由于未连接实际后端，这仅为体验演示内容。如果您开启联网模式，我也可以搜索更多有效工具。";
+    const fetchChat = async () => {
+       try {
+          const res = await fetch("/api/chat", {
+             method: "POST",
+             headers: { "Content-Type": "application/json" },
+             body: JSON.stringify({ 
+                modelId: selectedModelId,
+                messages: currentMessages 
+             })
+          });
+          
+          if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              throw new Error(errData.error || "Network error");
+          }
+          
+          if (!res.body) throw new Error("No body");
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let fullText = "";
+          let buffer = "";
+          
+          while (true) {
+             const { done, value } = await reader.read();
+             if (done) break;
+             buffer += decoder.decode(value, { stream: true });
+             const lines = buffer.split('\n');
+             buffer = lines.pop() || "";
+             
+             for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('data: ')) {
+                   const dataStr = trimmed.slice(6);
+                   if (dataStr === '[DONE]') continue;
+                   try {
+                      const parsed = JSON.parse(dataStr);
+                      if (parsed.text) {
+                         fullText += parsed.text;
+                         setMessages(prev => prev.map(msg => 
+                            msg.id === modelMessageId ? { ...msg, text: fullText } : msg
+                         ));
+                      }
+                   } catch(e) {}
+                }
+             }
+          }
+       } catch (error: any) {
+          console.error("fetchChat error:", error);
+          showToast(`无法连接本地引擎: ${error.message}`, 'error');
+          setMessages(prev => prev.map(msg => 
+             msg.id === modelMessageId ? { ...msg, text: "请求失败，请检查后端服务是否正常运行。" } : msg
+          ));
+       } finally {
+          setIsStreaming(false);
+       }
+    };
     
-    let currentIndex = 0;
-    const interval = setInterval(() => {
-      setMessages((prev) => 
-        prev.map(msg => 
-          msg.id === modelMessageId ? { ...msg, text: responseText.slice(0, currentIndex + 1) } : msg
-        )
-      );
-      currentIndex++;
-      if (currentIndex >= responseText.length) {
-        clearInterval(interval);
-        setIsStreaming(false);
-      }
-    }, 20);
+    fetchChat();
   };
 
   const currentBgClass = pageMode === "fenghechat" 
@@ -416,20 +526,7 @@ export default function App() {
                                  )}
                               >
                                  {msg.role === "model" ? (
-                                    <div className="markdown-body prose prose-zinc dark:prose-invert max-w-none prose-p:my-1 prose-p:text-zinc-900 dark:prose-p:text-zinc-100 prose-headings:text-zinc-900 dark:prose-headings:text-zinc-100 prose-pre:bg-black/5 dark:prose-pre:bg-white/10 prose-pre:backdrop-blur-md prose-pre:border-black/5 dark:prose-pre:border-white/5 prose-pre:border">
-                                       {isStreaming && msg.id === messages[messages.length-1].id ? (
-                                         <div>
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                               {msg.text}
-                                            </ReactMarkdown>
-                                            <span className="inline-block w-2 h-4 bg-current opacity-50 ml-1 animate-pulse align-middle mt-1"></span>
-                                         </div>
-                                       ) : (
-                                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                            {msg.text}
-                                         </ReactMarkdown>
-                                       )}
-                                    </div>
+                                    <MessageContentComponent text={msg.text} isStreaming={isStreaming} isLast={msg.id === messages[messages.length-1].id} />
                                  ) : (
                      <div className="whitespace-pre-wrap">{msg.text}</div>
                                  )}

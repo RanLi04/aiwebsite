@@ -36,87 +36,109 @@ async function startServer() {
         return res.status(400).json({ error: "No messages provided." });
       }
 
-      /* 
-       * ==========================================
-       * EXTERNAL API ROUTING SLOTS (HIDDEN FROM UI)
-       * ==========================================
-       * All API keys map here on the server side so they are 
-       * never leaked to the client/browser memory.
-       */
-      
-      if (modelId && modelId.startsWith("deepseek-")) {
-        const deepKey = process.env.DEEPSEEK_API_KEY;
-        // 🔒 Server-Side Deployment Principles (For your production):
-        // 1. The front-end React app only sends {"modelId": "deepseek-reasoner"}
-        // 2. The front-end NEVER knows the `deepKey` or the external endpoint.
-        // 3. This Node.js server authenticates with https://api.deepseek.com securely.
-        // 4. We stream the result back text by text to the client.
-        if (deepKey) {
-          // fetch('https://api.deepseek.com/v1/chat/completions', { ... });
-        }
-        // If no secret key is provided, we intentionally fall through to standard Gemini mapping
-        // to provide a smooth simulation in the build preview.
-      } else if (modelId && modelId.startsWith("fenghechat-")) {
-        const fenghechatKey = process.env.FENGHECHAT_API_KEY;
-        // 🔒 Server-Side Deployment Principles (For your production):
-        // 1. The front-end React app sends {"modelId": "fenghechat-pro"}
-        // 2. This Node.js server handles the actual API request to your self-hosted engine 
-        //    (via Ollama, vLLM, Together AI, etc.) securely without exposing the endpoint.
-        if (fenghechatKey) {
-           // fetch('your-fenghechat-endpoint/v1/chat/completions', { ... })
-        }
-      }
-
-      // Map user selected UI models to underlying Gemini models for simulation
-      let geminiModel = "gemini-3.5-flash";
+      // Map user selected UI models
       const modelMap: Record<string, string> = {
-        "fenghechat-unlimited": "gemini-3.1-pro-preview",
-        "fenghechat-pro": "gemini-3.1-pro-preview",
-        "fenghechat-flash": "gemini-3.5-flash",
-        "fenghechat-mini": "gemini-3.1-flash-lite",
-        "deepseek-reasoner": "gemini-3.1-pro-preview", // Fallback simulation
-        "deepseek-chat": "gemini-3.1-pro-preview",
+        "fenghechat-unlimited": "huihui_ai/gemma-4-abliterated:26b",
+        "fenghechat-pro": "huihui_ai/gemma-4-abliterated:26b",
+        "fenghechat-flash": "gemma3:12b",
+        "fenghechat-mini": "gemma3:4b",
+        "deepseek-reasoner": "gemma3:27b",
+        "deepseek-chat": "gemma3:27b",
       };
-      
-      if (modelMap[modelId]) {
-        geminiModel = modelMap[modelId];
-      }
+      const localModel = modelMap[modelId] || "gemma3:12b";
 
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
-      }
+      // 1. FORMAT MESSAGES
+      const formattedMessages = [
+        { role: "system", content: "You are a helpful conversational AI." },
+        ...messages.map((m: any) => ({
+          role: m.role === "model" ? "assistant" : "user",
+          content: m.text,
+        })),
+      ];
 
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+      // 2. CONNECT TO OLLAMA (Local)
+      const baseURL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1";
+
+      const response = await fetch(`${baseURL}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: localModel,
+          messages: formattedMessages,
+          stream: true,
+        }),
       });
 
-      // Prepare history and current input
-      const historyMsg = messages.slice(0, -1).map((m: any) => `${m.role}: ${m.text}`).join('\n\n');
-      const currentInput = messages[messages.length - 1].text;
-
-      let finalPrompt = currentInput;
-      if (historyMsg) {
-        finalPrompt = `Below is the conversation history:\n${historyMsg}\n\nNext user message (respond according to the persona):\n${currentInput}`;
+      if (!response.ok) {
+        const errText = await response.text().catch(() => "Unknown error");
+        throw new Error(`Ollama API error (${response.status}): ${errText}`);
       }
 
-      const responseStream = await ai.models.generateContentStream({
-        model: geminiModel,
-        contents: finalPrompt,
-        config: {
-          systemInstruction: "You are a helpful conversational AI.",
-        }
-      });
+      if (!response.body) {
+        throw new Error("No response body from Ollama API");
+      }
 
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
 
-      for await (const chunk of responseStream) {
-        if (chunk.text) {
-          const data = JSON.stringify({ text: chunk.text });
-          res.write(`data: ${data}\n\n`);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let sseLineBuffer = "";
+      let delayBuffer = "";
+      const blockedTokens = ["<end_of_turn>", "<start_of_turn>", "<eos>", "<bos>", "<|im_start|>", "<|im_end|>"];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        let chunkStr = "";
+        if (value) {
+            chunkStr = decoder.decode(value, { stream: true });
+        }
+        
+        sseLineBuffer += chunkStr;
+        const lines = sseLineBuffer.split('\n');
+        sseLineBuffer = lines.pop() || "";
+        
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          
+          const dataStr = trimmed.slice(6);
+          if (dataStr === '[DONE]') continue;
+          
+          try {
+            const parsed = JSON.parse(dataStr);
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) {
+              delayBuffer += content;
+              
+              for (const token of blockedTokens) {
+                 delayBuffer = delayBuffer.split(token).join("");
+              }
+              delayBuffer = delayBuffer.replace(/\n{3,}/g, "\n\n");
+              
+              if (delayBuffer.length > 20) {
+                 const safeEmit = delayBuffer.slice(0, -20);
+                 delayBuffer = delayBuffer.slice(-20);
+                 res.write(`data: ${JSON.stringify({ text: safeEmit })}\n\n`);
+              }
+            }
+          } catch(e) {
+            // ignore partial JSON
+          }
+        }
+        
+        if (done) break;
+      }
+      
+      if (delayBuffer) {
+        for (const token of blockedTokens) {
+           delayBuffer = delayBuffer.split(token).join("");
+        }
+        delayBuffer = delayBuffer.replace(/\n{3,}/g, "\n\n");
+        if (delayBuffer) {
+           res.write(`data: ${JSON.stringify({ text: delayBuffer })}\n\n`);
         }
       }
       
