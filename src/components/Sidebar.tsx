@@ -74,7 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             <nav className="space-y-1 px-1">
-                  <div className="text-xs font-semibold opacity-50 tracking-wider mb-2 mt-4 px-2">最近对话（已同步云端）</div>
+                  <div className="text-xs font-semibold opacity-50 tracking-wider mb-2 mt-4 px-2">历史对话</div>
                   {sessions.length === 0 ? (
                     <div className="text-[11px] opacity-40 px-3 mt-4">暂无历史记录</div>
                   ) : (
@@ -126,13 +126,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                      {theme === 'dark' ? <><Sun className="h-4 w-4 opacity-70" /><span className="text-sm">浅色模式</span></> : <><Moon className="h-4 w-4 opacity-70" /><span className="text-sm">深色模式</span></>}
                </button>
             </div>
-            <div onClick={() => showToast('您的本地私钥已安全验证', 'success')} className="flex items-center justify-between p-3 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 hover:border-black/10 dark:hover:border-white/20 transition-colors cursor-pointer shadow-inner active:scale-95">
+            <div className="flex items-center justify-between p-3 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 transition-colors shadow-inner">
                   <div className="flex items-center gap-3">
                      <div className="h-8 w-8 rounded-lg bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-sm font-semibold border border-black/10 dark:border-white/10 shadow-sm">U</div>
                      <div className="flex flex-col">
                         <span className="text-sm font-medium">User_Admin</span>
-                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>零知识隔离中
+                        <span className="text-[10px] text-zinc-500 flex items-center gap-1">
+                           本地模型工作站
                         </span>
                      </div>
                   </div>

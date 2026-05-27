@@ -11,6 +11,8 @@ interface MessageListProps {
   supportsThinking: boolean;
   onCopy: (text: string) => void;
   onFeedback: () => void;
+  onRegenerate: () => void;
+  onEdit: (id: string, text: string) => void;
   onSuggestionClick: (text: string) => void;
   messagesEndRef: React.RefObject<HTMLDivElement>;
 }
@@ -22,6 +24,8 @@ export const MessageList: React.FC<MessageListProps> = ({
   supportsThinking,
   onCopy,
   onFeedback,
+  onRegenerate,
+  onEdit,
   onSuggestionClick,
   messagesEndRef
 }) => {
@@ -82,6 +86,8 @@ export const MessageList: React.FC<MessageListProps> = ({
                 supportsThinking={supportsThinking}
                 onCopy={onCopy}
                 onFeedback={onFeedback}
+                onRegenerate={onRegenerate}
+                onEdit={(newText) => onEdit(msg.id, newText)}
               />
             ))}
             <div ref={messagesEndRef} className="h-px w-full" />

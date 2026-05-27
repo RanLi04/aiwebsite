@@ -96,6 +96,44 @@ async function startServer() {
     }
   });
 
+  app.post("/api/title", async (req, res) => {
+    try {
+      const { text, modelId } = req.body;
+      const modelMap: Record<string, any> = {
+        "fenghechat-unlimited": { name: "gemma3:12b", temperature: 0.6 },
+        "fenghechat-pro": { name: "huihui_ai/gemma-4-abliterated", temperature: 0.6 },
+        "fenghechat-flash": { name: "gemma3:12b", temperature: 0.6 },
+        "fenghechat-mini": { name: "qwen2.5:0.5b", temperature: 0.6 },
+        "deepseek-reasoner": { name: "deepseek-r1:1.5b", temperature: 0.6 },
+        "deepseek-chat": { name: "deepseek-chat", temperature: 0.6 },
+      };
+      const modelConfig = modelMap[modelId] || { name: "gemma3:12b", temperature: 0.6 };
+      
+      const response = await fetch("http://host.docker.internal:11434/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: modelConfig.name,
+          prompt: `Summarize the following text into a very concise title (maximum 10 chars, return ONLY the title without any quotation marks or extra words):\n\n${text}`,
+          stream: false,
+          options: {
+            temperature: 0.3,
+          }
+        }),
+      });
+      if (response.ok) {
+         const data = await response.json();
+         let title = data.response.trim().replace(/^["']|["']$/g, '');
+         if (title.length > 20) title = title.substring(0, 20) + "...";
+         res.json({ title });
+      } else {
+         res.json({ title: text.substring(0, 15) });
+      }
+    } catch(e) {
+      res.json({ title: req.body.text.substring(0, 15) });
+    }
+  });
+
   // API Route for chat
   app.post("/api/chat", async (req, res) => {
     try {
@@ -123,7 +161,7 @@ async function startServer() {
       res.setHeader("Connection", "keep-alive");
       res.flushHeaders();
 
-      let systemPrompt = "You are a helpful conversational AI.";
+      let systemPrompt = req.body.systemPrompt || "You are a helpful conversational AI.";
       
       const abortController = new AbortController();
       req.on('close', () => {
@@ -132,14 +170,14 @@ async function startServer() {
       
       if (isWebSearchMode && messages.length > 0) {
          try {
-             console.log("Starting DuckDuckGo search...");
+             console.log("Starting Web search...");
              const lastUserMsg = messages[messages.length - 1].text;
              const ddgController = new AbortController();
-             const timeoutId = setTimeout(() => ddgController.abort(), 3500);
+             const timeoutId = setTimeout(() => ddgController.abort(), 6500); // Increased timeout
              
              const ddgRes = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(lastUserMsg)}`, {
                  headers: {
-                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64 AppleWebKit/537.36)"
+                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
                  },
                  signal: ddgController.signal
              });
@@ -147,37 +185,63 @@ async function startServer() {
 
              if (ddgRes.ok) {
                  const html = await ddgRes.text();
-                 const snippetRegex = /<a class="result__snippet[^>]*>([\s\S]*?)<\/a>/gi;
-                 const results: string[] = [];
-                 let match;
-                 let count = 0;
-                 while ((match = snippetRegex.exec(html)) !== null && count < 5) {
-                     let text = match[1].replace(/<[^>]+>/g, '').trim();
-                     text = text.replace(/&\w+;/g, ' '); // simple unescape
-                     if (text) {
-                         results.push(text);
-                         count++;
+                 
+                 // Extract results properly
+                 const resultBlocks = html.split('<div class="result__body links_main links_deep">').slice(1, 11); // max 10
+                 const searchResults = [];
+                 
+                 // fallback if standard blocks don't exist
+                 if (resultBlocks.length === 0) {
+                     const snippetRegex = /<a class="result__snippet[^>]*>([\s\S]*?)<\/a>/gi;
+                     let match;
+                     while ((match = snippetRegex.exec(html)) !== null && searchResults.length < 5) {
+                         let text = match[1].replace(/<[^>]+>/g, '').trim().replace(/&\w+;/g, ' ');
+                         if (text) searchResults.push(`Snippet: ${text}`);
+                     }
+                 } else {
+                     for (const block of resultBlocks) {
+                         const titleMatch = block.match(/<h2 class="result__title">[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/);
+                         const snippetMatch = block.match(/<a class="result__snippet[^>]*>([\s\S]*?)<\/a>/);
+                         const urlMatch = block.match(/<a class="result__url" href="([^"]+)"/);
+                         
+                         if (snippetMatch) {
+                             let title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : "Result";
+                             let snippet = snippetMatch[1].replace(/<[^>]+>/g, '').trim().replace(/&\w+;/g, ' ');
+                             let url = urlMatch ? decodeURIComponent(urlMatch[1]) : "";
+                             if (url.startsWith('//duckduckgo.com/l/?uddg=')) {
+                                 url = decodeURIComponent(url.split('uddg=')[1].split('&')[0]);
+                             }
+                             if (snippet) {
+                                 searchResults.push(`Title: ${title}\nURL: ${url}\nSnippet: ${snippet}`);
+                             }
+                         }
                      }
                  }
-                 if (results.length > 0) {
-                     const searchResults = results.join("\n\n");
-                     console.log("DDG search succeeded.");
-                     systemPrompt += `\n\n[Search Results for Context]\n${searchResults}\n\nPlease use the above recent information to help answer the user's query if it is relevant.`;
+                 
+                 if (searchResults.length > 0) {
+                     systemPrompt += `\n\n[Web Search Context]\nYou have access to the following real-time web search results for the user's query:\n\n${searchResults.join("\n\n---\n\n")}\n\nPlease synthesize this context to answer the user's question accurately. Whenever you use facts derived from these results, you MUST cite them by referring to the Title or URL provided. Do not hallucinate links.`;
+                     console.log(`Injected ${searchResults.length} search results into context.`);
                  } else {
-                     console.log("DDG returned no snippets.");
+                     console.log("No search results could be extracted.");
                  }
              } else {
-                 console.error("DDG Search failed:", ddgRes.status);
+                 console.log("Search request failed with status:", ddgRes.status);
              }
-         } catch (e) {
-             console.error("DDG Search error:", e);
+         } catch(e) {
+             console.error("Web search failed:", e);
          }
+      }
+
+      // Limit context to last 30 messages
+      let recentMessages = messages;
+      if (messages.length > 30) {
+         recentMessages = messages.slice(-30);
       }
 
       // 1. FORMAT MESSAGES
       const formattedMessages = [
         { role: "system", content: systemPrompt },
-        ...messages.map((m: any) => ({
+        ...recentMessages.map((m: any) => ({
           role: m.role === "model" ? "assistant" : "user",
           content: m.text,
         })),

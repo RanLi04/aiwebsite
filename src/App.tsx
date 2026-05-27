@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Message, Theme, PageMode, Session } from "./types";
-import { Menu, Lock, CheckCircle2, AlertCircle, Info } from "lucide-react";
+import { Menu, Lock, CheckCircle2, AlertCircle, Info, Settings, X } from "lucide-react";
 import { cn } from "./utils";
 import { Sidebar } from "./components/Sidebar";
 import { ModelDropdown } from "./components/ModelDropdown";
@@ -8,7 +8,7 @@ import { MessageList } from "./components/MessageList";
 import { ChatInput } from "./components/ChatInput";
 
 const fenghechatModels = [
-  { id: "fenghechat-unlimited", name: "思忆千环 无限制", color: "bg-red-500", desc: "移除安全护栏，支持自由角色扮演与创作", shadow:"shadow-[0_0_8px_rgba(239,68,68,0.8)]", supportsThinking: true },
+  { id: "fenghechat-unlimited", name: "思忆千环 无限制", color: "bg-red-500", desc: "移除安全护栏，支持自由角色扮演与创作", shadow:"shadow-[0_0_8px_rgba(239,68,68,0.8)]", supportsThinking: false },
   { id: "fenghechat-pro", name: "思忆千环 Pro", color: "bg-purple-400", desc: "深度推理与复杂逻辑分析", shadow:"shadow-[0_0_8px_rgba(192,132,252,0.8)]", supportsThinking: true },
   { id: "fenghechat-flash", name: "思忆千环 Flash", color: "bg-blue-400", desc: "极速响应，适合日常使用", shadow:"shadow-[0_0_8px_rgba(96,165,250,0.8)]", supportsThinking: false },
   { id: "fenghechat-mini", name: "思忆千环 Mini", color: "bg-emerald-400", desc: "轻量级、高能效的小模型", shadow:"shadow-[0_0_8px_rgba(52,211,153,0.8)]", supportsThinking: false },
@@ -22,7 +22,7 @@ const flagshipModels = [
 export default function App() {
   const [theme, setTheme] = useState<Theme>("dark");
   const [pageMode, setPageMode] = useState<PageMode>("fenghechat");
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768);
   
   // Model mapping
   const models = pageMode === "fenghechat" ? fenghechatModels : flagshipModels;
@@ -75,6 +75,9 @@ export default function App() {
     }
   };
 
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
   useEffect(() => {
     fetchSessions();
   }, []);
@@ -90,22 +93,43 @@ export default function App() {
     }
     
     if (sid && !isStreaming) {
-      const firstMessage = messages[0]?.text || "新会话";
-      const title = firstMessage.length > 40 ? firstMessage.substring(0, 40) + "..." : firstMessage;
-      
-      const sessionData = {
-        id: sid,
-        title,
-        updatedAt: Date.now(),
-        messages
+      const saveToDb = async (title: string) => {
+          const sessionData = {
+            id: sid,
+            title,
+            updatedAt: Date.now(),
+            messages
+          };
+          fetch("/api/sessions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-client-id": clientId },
+            body: JSON.stringify(sessionData)
+          }).then(() => fetchSessions()).catch(() => showToast("自动保存会话失败", "error"));
       };
+
+      const firstMessage = messages[0]?.text || "新会话";
+      let existingSession = sessions.find(s => s.id === sid);
       
-      let timer = setTimeout(() => {
-        fetch("/api/sessions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-client-id": clientId },
-          body: JSON.stringify(sessionData)
-        }).then(() => fetchSessions()).catch(() => showToast("自动保存会话失败", "error"));
+      let timer = setTimeout(async () => {
+         if (!existingSession || existingSession.title === "新会话" || existingSession.title.length > 20) {
+            try {
+               const res = await fetch("/api/title", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ text: firstMessage, modelId: selectedModelId })
+               });
+               if (res.ok) {
+                  const data = await res.json();
+                  saveToDb(data.title || firstMessage.substring(0, 15));
+               } else {
+                  saveToDb(firstMessage.substring(0, 15));
+               }
+            } catch(e) {
+               saveToDb(firstMessage.substring(0, 15));
+            }
+         } else {
+            saveToDb(existingSession.title);
+         }
       }, 500); // debounce save
       return () => clearTimeout(timer);
     }
@@ -132,18 +156,8 @@ export default function App() {
     }
   };
 
-  const handleSend = () => {
-    if (!input.trim() || isStreaming) return;
-
-    const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: input.trim() };
-    const currentMessages = [...messages, userMessage];
-    setMessages(currentMessages);
-    setInput("");
-    if (textareaRef.current) {
-        textareaRef.current.style.height = '48px';
-    }
+  const invokeChat = (currentMessages: Message[]) => {
     setIsStreaming(true);
-
     const modelMessageId = crypto.randomUUID();
     setMessages((prev) => [...prev, { id: modelMessageId, role: "model", text: "", isWebSearch: isWebSearchMode }]);
 
@@ -157,7 +171,8 @@ export default function App() {
              body: JSON.stringify({ 
                 modelId: selectedModelId,
                 messages: currentMessages,
-                isWebSearchMode: isWebSearchMode
+                isWebSearchMode: isWebSearchMode,
+                systemPrompt: systemPrompt
              })
           });
           
@@ -230,6 +245,38 @@ export default function App() {
     };
     
     fetchChat();
+  };
+
+  const handleSend = () => {
+    if (!input.trim() || isStreaming) return;
+    const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: input.trim() };
+    const currentMessages = [...messages, userMessage];
+    setMessages(currentMessages);
+    setInput("");
+    if (textareaRef.current) {
+        textareaRef.current.style.height = '48px';
+    }
+    invokeChat(currentMessages);
+  };
+
+  const handleRegenerate = () => {
+    if (isStreaming || messages.length === 0) return;
+    const lastUserMessageIndex = [...messages].reverse().findIndex(m => m.role === 'user');
+    if (lastUserMessageIndex === -1) return; // No user message to regenerate from
+    const userMsgIndex = messages.length - 1 - lastUserMessageIndex;
+    const newMessages = messages.slice(0, userMsgIndex + 1);
+    setMessages(newMessages);
+    invokeChat(newMessages);
+  };
+
+  const handleEdit = (id: string, text: string) => {
+    if (isStreaming) return;
+    const msgIndex = messages.findIndex(m => m.id === id);
+    if (msgIndex === -1) return;
+    const userMessage = { ...messages[msgIndex], text };
+    const newMessages = [...messages.slice(0, msgIndex), userMessage];
+    setMessages(newMessages);
+    invokeChat(newMessages);
   };
 
   const currentBgClass = pageMode === "fenghechat" 
@@ -335,12 +382,37 @@ export default function App() {
             />
 
             <div className="hidden md:flex items-center gap-4">
-               <div onClick={() => showToast('连接完全加密，未发生数据泄漏', 'success')} className="text-xs opacity-60 flex items-center gap-1.5 hover:text-emerald-500 transition-colors px-2 py-1 cursor-pointer active:scale-95 hidden lg:flex">
-                  <Lock className="h-3.5 w-3.5 text-emerald-500" />
-                  <span>安全连接</span>
-               </div>
+               <button onClick={() => setIsSettingsOpen(true)} className="p-2 opacity-60 hover:opacity-100 transition-colors active:scale-95">
+                  <Settings className="h-5 w-5" />
+               </button>
             </div>
          </header>
+
+         {/* Settings Modal */}
+         {isSettingsOpen && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+               <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-in fade-in zoom-in-95">
+                  <div className="flex items-center justify-between mb-4">
+                     <h2 className="text-xl font-bold flex items-center gap-2"><Settings className="h-5 w-5" /> 系统设置</h2>
+                     <button onClick={() => setIsSettingsOpen(false)} className="p-1 opacity-60 hover:opacity-100"><X className="h-5 w-5" /></button>
+                  </div>
+                  <div className="space-y-4">
+                     <div>
+                        <label className="block text-sm font-medium opacity-80 mb-2">系统提示词 (System Prompt)</label>
+                        <textarea 
+                           className="w-full bg-black/5 dark:bg-white/10 rounded-xl p-3 h-32 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-vertical text-sm"
+                           placeholder="You are a helpful conversational AI..."
+                           value={systemPrompt}
+                           onChange={e => setSystemPrompt(e.target.value)}
+                        />
+                     </div>
+                  </div>
+                  <div className="mt-6 flex justify-end">
+                     <button onClick={() => setIsSettingsOpen(false)} className="px-5 py-2.5 rounded-xl bg-indigo-500 text-white font-medium hover:bg-indigo-600 transition-colors active:scale-95">保存</button>
+                  </div>
+               </div>
+            </div>
+         )}
 
          <MessageList
            messages={messages}
@@ -349,6 +421,8 @@ export default function App() {
            supportsThinking={selectedModel?.supportsThinking ?? true}
            onCopy={handleCopy}
            onFeedback={() => showToast('已记录您的赞同反馈', 'success')}
+           onRegenerate={handleRegenerate}
+           onEdit={handleEdit}
            onSuggestionClick={(text) => { setInput(text); }}
            messagesEndRef={messagesEndRef}
          />

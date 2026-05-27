@@ -3,6 +3,8 @@ import { Sparkles, ChevronDown } from "lucide-react";
 import { cn } from "../utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import "highlight.js/styles/github-dark.css";
 
 export const ThinkingBlock = React.memo(function MessageContent({ text, isStreaming, isLast, supportsThinking, isWebSearch }: { text: string, isStreaming: boolean, isLast: boolean, supportsThinking: boolean, isWebSearch?: boolean }) {
   const thinkStart = text.indexOf("<think>");
@@ -71,7 +73,7 @@ export const ThinkingBlock = React.memo(function MessageContent({ text, isStream
       
       {mainText && (
         <div className="markdown-body prose prose-zinc dark:prose-invert max-w-none prose-p:my-1 prose-p:text-zinc-900 dark:prose-p:text-zinc-100 prose-headings:text-zinc-900 dark:prose-headings:text-zinc-100 prose-pre:bg-black/5 dark:prose-pre:bg-white/10 prose-pre:backdrop-blur-md prose-pre:border-black/5 dark:prose-pre:border-white/5 prose-pre:border">
-           <ReactMarkdown remarkPlugins={[remarkGfm]}>
+           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
               {mainText}
            </ReactMarkdown>
         </div>
