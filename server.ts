@@ -96,16 +96,41 @@ async function startServer() {
       
       if (isWebSearchMode && messages.length > 0) {
          try {
+             const cheerio = await import('cheerio');
+             console.log("Starting DuckDuckGo search...");
              const lastUserMsg = messages[messages.length - 1].text;
-             const jinaRes = await fetch(`https://s.jina.ai/?q=${encodeURIComponent(lastUserMsg)}`, {
-                 headers: { "Accept": "text/plain" }
+             const controller = new AbortController();
+             const timeoutId = setTimeout(() => controller.abort(), 6000);
+             
+             const ddgRes = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(lastUserMsg)}`, {
+                 headers: {
+                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                 },
+                 signal: controller.signal
              });
-             if (jinaRes.ok) {
-                 const searchResults = await jinaRes.text();
-                 systemPrompt += `\n\n[Search Results for Context]\n${searchResults}\n\nPlease use the above recent information to help answer the user's query if it is relevant.`;
+             clearTimeout(timeoutId);
+             
+             if (ddgRes.ok) {
+                 const html = await ddgRes.text();
+                 const $ = cheerio.load(html);
+                 const results: string[] = [];
+                 $('.result__snippet').each((i, el) => {
+                    if (i < 5) {
+                        results.push($(el).text().trim());
+                    }
+                 });
+                 if (results.length > 0) {
+                     const searchResults = results.join("\n\n");
+                     console.log("DDG search succeeded.");
+                     systemPrompt += `\n\n[Search Results for Context]\n${searchResults}\n\nPlease use the above recent information to help answer the user's query if it is relevant.`;
+                 } else {
+                     console.log("DDG returned no snippets.");
+                 }
+             } else {
+                 console.error("DDG Search failed:", ddgRes.status);
              }
          } catch (e) {
-             console.error("Jina Search error:", e);
+             console.error("DDG Search error:", e);
          }
       }
 
