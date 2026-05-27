@@ -35,19 +35,40 @@ async function startServer() {
   };
 
   app.get("/api/sessions", (req, res) => {
+    const clientId = req.headers["x-client-id"] || "anonymous";
     const store = getSessionsStore();
-    const sessions = Object.values(store).sort((a: any, b: any) => b.updatedAt - a.updatedAt);
+    const sessions = Object.values(store)
+      .filter((s: any) => s.clientId === clientId)
+      .sort((a: any, b: any) => b.updatedAt - a.updatedAt);
     res.json(sessions);
   });
 
   app.post("/api/sessions", (req, res) => {
+    const clientId = req.headers["x-client-id"] || "anonymous";
     const { id, title, updatedAt, messages } = req.body;
     if (!id) return res.status(400).json({ error: "Missing session id" });
     
     const store = getSessionsStore();
-    store[id] = { id, title: title || "新会话", updatedAt: updatedAt || Date.now(), messages: messages || [] };
+    if (store[id] && store[id].clientId && store[id].clientId !== clientId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    store[id] = { id, title: title || "新会话", updatedAt: updatedAt || Date.now(), messages: messages || [], clientId };
     saveSessionsStore(store);
     
+    res.json({ success: true });
+  });
+
+  app.delete("/api/sessions/:id", (req, res) => {
+    const clientId = req.headers["x-client-id"] || "anonymous";
+    const { id } = req.params;
+    const store = getSessionsStore();
+    if (store[id]) {
+       if (store[id].clientId && store[id].clientId !== clientId) {
+           return res.status(403).json({ error: "Forbidden" });
+       }
+       delete store[id];
+       saveSessionsStore(store);
+    }
     res.json({ success: true });
   });
 
@@ -122,6 +143,7 @@ async function startServer() {
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
+      res.flushHeaders();
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -150,19 +172,13 @@ async function startServer() {
           
           try {
             const parsed = JSON.parse(dataStr);
-            const content = parsed.choices?.[0]?.delta?.content;
+            let content = parsed.choices?.[0]?.delta?.content;
             if (content) {
-              delayBuffer += content;
-              
               for (const token of blockedTokens) {
-                 delayBuffer = delayBuffer.split(token).join("");
+                 content = content.split(token).join("");
               }
-              delayBuffer = delayBuffer.replace(/\n{3,}/g, "\n\n");
-              
-              if (delayBuffer.length > 20) {
-                 const safeEmit = delayBuffer.slice(0, -20);
-                 delayBuffer = delayBuffer.slice(-20);
-                 res.write(`data: ${JSON.stringify({ text: safeEmit })}\n\n`);
+              if (content) {
+                 res.write(`data: ${JSON.stringify({ text: content })}\n\n`);
               }
             }
           } catch(e) {
@@ -171,16 +187,6 @@ async function startServer() {
         }
         
         if (done) break;
-      }
-      
-      if (delayBuffer) {
-        for (const token of blockedTokens) {
-           delayBuffer = delayBuffer.split(token).join("");
-        }
-        delayBuffer = delayBuffer.replace(/\n{3,}/g, "\n\n");
-        if (delayBuffer) {
-           res.write(`data: ${JSON.stringify({ text: delayBuffer })}\n\n`);
-        }
       }
       
       res.write("data: [DONE]\n\n");

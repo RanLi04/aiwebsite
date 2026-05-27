@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Message, Theme, PageMode, Session } from "./types";
-import { Send, Moon, Sun, Menu, Sparkles, X, Plus, Edit, LayoutGrid, Database, MessageSquare, Settings, Lock, Paperclip, Globe, CheckCircle2, AlertCircle, Info, Copy, ThumbsUp, ChevronDown, Code, BarChart, BookOpen, Languages, Aperture } from "lucide-react";
+import { Send, Moon, Sun, Menu, Sparkles, X, Plus, Edit, LayoutGrid, Database, MessageSquare, Settings, Lock, Paperclip, Globe, CheckCircle2, AlertCircle, Info, Copy, ThumbsUp, ChevronDown, Code, BarChart, BookOpen, Languages, Aperture, Trash2, Square } from "lucide-react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import ReactMarkdown from "react-markdown";
@@ -118,13 +118,24 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>("");
   
+  const [clientId] = useState(() => {
+    let id = localStorage.getItem("siyi_client_id");
+    if (!id) {
+       id = crypto.randomUUID();
+       localStorage.setItem("siyi_client_id", id);
+    }
+    return id;
+  });
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchSessions = async () => {
     try {
-      const res = await fetch("/api/sessions");
+      const res = await fetch("/api/sessions", {
+         headers: { "x-client-id": clientId }
+      });
       if (res.ok) {
         const data = await res.json();
         setSessions(data);
@@ -162,7 +173,7 @@ export default function App() {
       let timer = setTimeout(() => {
         fetch("/api/sessions", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-client-id": clientId },
           body: JSON.stringify(sessionData)
         }).then(() => fetchSessions()).catch(() => showToast("自动保存会话失败", "error"));
       }, 500); // debounce save
@@ -299,6 +310,26 @@ export default function App() {
     showToast('内容已复制到剪贴板', 'success');
   };
 
+  const deleteSession = async (e: React.MouseEvent, id: string) => {
+     e.stopPropagation();
+     try {
+        const res = await fetch(`/api/sessions/${id}`, {
+           method: "DELETE",
+           headers: { "x-client-id": clientId }
+        });
+        if (res.ok) {
+           if (currentSessionId === id) {
+              setCurrentSessionId("");
+              setMessages([]);
+           }
+           fetchSessions();
+           showToast("对话已删除", "success");
+        }
+     } catch (err) {
+        showToast("删除失败", "error");
+     }
+  };
+
   return (
     <div className={cn("flex h-screen w-full overflow-hidden text-zinc-900 dark:text-zinc-100 transition-colors duration-500", currentBgClass)}>
       
@@ -375,10 +406,19 @@ export default function App() {
                            setMessages(s.messages || []);
                            if (window.innerWidth < 768) setIsSidebarOpen(false);
                          }} 
-                         className={cn("w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-colors group", currentSessionId === s.id ? "bg-black/5 dark:bg-white/10 border border-black/5 dark:border-white/5" : "hover:bg-black/5 dark:hover:bg-white/10")}
+                         className={cn("w-full flex items-center justify-between px-3 py-3 rounded-xl transition-colors group", currentSessionId === s.id ? "bg-black/5 dark:bg-white/10 border border-black/5 dark:border-white/5" : "hover:bg-black/5 dark:hover:bg-white/10")}
                        >
-                         <MessageSquare className={cn("h-4 w-4", currentSessionId === s.id ? "text-indigo-500" : "opacity-40 group-hover:opacity-80")} />
-                         <span className="text-sm truncate">{s.title}</span>
+                         <div className="flex items-center gap-3 overflow-hidden flex-1">
+                           <MessageSquare className={cn("h-4 w-4 flex-shrink-0", currentSessionId === s.id ? "text-indigo-500" : "opacity-40 group-hover:opacity-80")} />
+                           <span className="text-sm truncate mr-2">{s.title}</span>
+                         </div>
+                         <div 
+                            onClick={(e) => deleteSession(e, s.id)} 
+                            className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-black/10 dark:hover:bg-white/20 rounded-md transition-all ml-auto hover:text-red-500"
+                            title="删除对话"
+                         >
+                            <Trash2 className="h-3.5 w-3.5" />
+                         </div>
                        </button>
                     ))
                   )}
@@ -622,13 +662,29 @@ export default function App() {
                      style={{ minHeight: "48px" }}
                   />
                   
-                  <button 
-                     onClick={handleSend}
-                     disabled={!input.trim() || isStreaming}
-                     className="p-2.5 md:p-3 rounded-full transition-all flex-shrink-0 text-white disabled:bg-black/10 dark:disabled:bg-white/10 dark:disabled:text-white/30 disabled:text-black/30 bg-black dark:bg-white dark:text-black shadow-sm disabled:shadow-none mb-0.5 mr-0.5 active:scale-95 hover:scale-105 disabled:transform-none disabled:cursor-not-allowed outline-none"
-                  >
-                     <Send className="h-[20px] w-[20px] -ml-0.5 mt-0.5" />
-                  </button>
+                  {isStreaming ? (
+                     <button 
+                        onClick={() => {
+                           if (abortControllerRef.current) {
+                              abortControllerRef.current.abort();
+                              abortControllerRef.current = null;
+                              setIsStreaming(false);
+                           }
+                        }}
+                        className="p-2.5 md:p-3 rounded-full transition-all flex-shrink-0 text-white bg-black dark:bg-white dark:text-black shadow-sm mb-0.5 mr-0.5 active:scale-95 hover:scale-105 outline-none flex items-center justify-center animate-pulse"
+                        title="停止生成"
+                     >
+                        <Square className="h-[20px] w-[20px] fill-current" />
+                     </button>
+                  ) : (
+                     <button 
+                        onClick={handleSend}
+                        disabled={!input.trim()}
+                        className="p-2.5 md:p-3 rounded-full transition-all flex-shrink-0 text-white disabled:bg-black/10 dark:disabled:bg-white/10 dark:disabled:text-white/30 disabled:text-black/30 bg-black dark:bg-white dark:text-black shadow-sm disabled:shadow-none mb-0.5 mr-0.5 active:scale-95 hover:scale-105 disabled:transform-none disabled:cursor-not-allowed outline-none flex items-center justify-center"
+                     >
+                        <Send className="h-[20px] w-[20px] -ml-0.5 mt-0.5" />
+                     </button>
+                  )}
                </div>
                <div className="text-center mt-3 text-[10px] md:text-[11px] opacity-50 font-medium">
                   AI 内容可能会产生错误，请注意核查。
