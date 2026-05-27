@@ -2,6 +2,7 @@ export interface Message {
   id: string;
   role: 'user' | 'model';
   text: string;
+  isWebSearch?: boolean;
 }
 
 export type Theme = 'light' | 'dark';

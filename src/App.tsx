@@ -145,7 +145,7 @@ export default function App() {
     setIsStreaming(true);
 
     const modelMessageId = crypto.randomUUID();
-    setMessages((prev) => [...prev, { id: modelMessageId, role: "model", text: "" }]);
+    setMessages((prev) => [...prev, { id: modelMessageId, role: "model", text: "", isWebSearch: isWebSearchMode }]);
 
     const fetchChat = async () => {
        try {

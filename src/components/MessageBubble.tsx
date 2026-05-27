@@ -32,7 +32,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ msg, isStreaming, 
           )}
         >
           {msg.role === "model" ? (
-            <ThinkingBlock text={msg.text} isStreaming={isStreaming} isLast={isLast} supportsThinking={supportsThinking} />
+            <ThinkingBlock text={msg.text} isStreaming={isStreaming} isLast={isLast} supportsThinking={supportsThinking} isWebSearch={msg.isWebSearch} />
           ) : (
             <div className="whitespace-pre-wrap">{msg.text}</div>
           )}

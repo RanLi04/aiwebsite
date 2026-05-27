@@ -4,7 +4,7 @@ import { cn } from "../utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-export const ThinkingBlock = React.memo(function MessageContent({ text, isStreaming, isLast, supportsThinking }: { text: string, isStreaming: boolean, isLast: boolean, supportsThinking: boolean }) {
+export const ThinkingBlock = React.memo(function MessageContent({ text, isStreaming, isLast, supportsThinking, isWebSearch }: { text: string, isStreaming: boolean, isLast: boolean, supportsThinking: boolean, isWebSearch?: boolean }) {
   const thinkStart = text.indexOf("<think>");
   const thinkEnd = text.indexOf("</think>", thinkStart);
   
@@ -13,12 +13,12 @@ export const ThinkingBlock = React.memo(function MessageContent({ text, isStream
   const [isExpanded, setIsExpanded] = useState(false);
   
   useEffect(() => {
-    if (isThinking) {
+    if (isThinking || (isStreaming && !text && isWebSearch)) {
       setIsExpanded(true);
     } else if (thinkComplete && isLast && isStreaming) {
       setIsExpanded(false);
     }
-  }, [isThinking, thinkComplete, isLast, isStreaming]);
+  }, [isThinking, thinkComplete, isLast, isStreaming, isWebSearch, text]);
 
   let thinkText = "";
   let mainText = text;
@@ -35,8 +35,15 @@ export const ThinkingBlock = React.memo(function MessageContent({ text, isStream
 
   // Determine if we should show the thinking block. 
   // If it's streaming and we haven't received anything yet, we can pretend it's thinking to give the user peace of mind, IF the model supports thinking natively.
-  const showThinkingBlock = thinkStart !== -1 || (isStreaming && !text && supportsThinking);
-  const isCurrentlyThinking = isThinking || (isStreaming && !text && supportsThinking);
+  const showThinkingBlock = thinkStart !== -1 || (isStreaming && !text && (supportsThinking || isWebSearch));
+  const isCurrentlyThinking = isThinking || (isStreaming && !text && (supportsThinking || isWebSearch));
+
+  let statusText = "已完成思考";
+  if (isCurrentlyThinking) {
+      if (thinkStart !== -1) statusText = "深度思考中...";
+      else if (isWebSearch && !text) statusText = "联网检索中...";
+      else statusText = "引擎启动与网络调度中...";
+  }
 
   return (
     <div className="flex flex-col gap-3 w-full">
@@ -48,14 +55,14 @@ export const ThinkingBlock = React.memo(function MessageContent({ text, isStream
           >
             <div className="flex items-center gap-2">
               <Sparkles className={cn("h-3.5 w-3.5", isCurrentlyThinking ? "animate-pulse text-indigo-500" : "")} />
-              <span>{isCurrentlyThinking ? ((thinkStart !== -1) ? "深度思考中..." : "引擎启动与网络调度中...") : "已完成思考"}</span>
+              <span>{statusText}</span>
             </div>
             <ChevronDown className={cn("h-4 w-4 transition-transform duration-300", isExpanded ? "rotate-180" : "")} />
           </button>
           
           {isExpanded && (
             <div className="px-4 py-3 text-[13px] opacity-70 border-t border-black/10 dark:border-white/10 font-mono whitespace-pre-wrap leading-relaxed">
-              {thinkText || (isStreaming && thinkStart === -1 ? "正在等待模型节点返回数据，这可能需要几秒钟时间..." : "")}
+              {thinkText || (isStreaming && thinkStart === -1 ? (isWebSearch ? "正在执行搜索并提取相关内容，请稍候..." : "正在等待模型节点返回数据，这可能需要几秒钟时间...") : "")}
               {isCurrentlyThinking && <span className="inline-block w-2 h-3 bg-current ml-1 animate-pulse align-middle"></span>}
             </div>
           )}
