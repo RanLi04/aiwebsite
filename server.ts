@@ -3,44 +3,43 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import fs from "fs";
+import Database from "better-sqlite3";
 
 dotenv.config();
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: "10mb" }));
 
-  const SESSIONS_FILE = path.join(process.cwd(), "sessions.json");
+// ... existing code in startServer ...
+  const DB_FILE = path.join(process.cwd(), "sessions.db");
+  const db = new Database(DB_FILE);
   
-  const getSessionsStore = (): Record<string, any> => {
-    try {
-      if (fs.existsSync(SESSIONS_FILE)) {
-        const data = fs.readFileSync(SESSIONS_FILE, "utf-8");
-        return JSON.parse(data);
-      }
-    } catch(e) {
-      console.error("Error reading sessions file:", e);
-    }
-    return {};
-  };
-
-  const saveSessionsStore = (store: Record<string, any>) => {
-    try {
-      fs.writeFileSync(SESSIONS_FILE, JSON.stringify(store, null, 2), "utf-8");
-    } catch(e) {
-      console.error("Error writing sessions file:", e);
-    }
-  };
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      clientId TEXT,
+      title TEXT,
+      updatedAt INTEGER,
+      messages TEXT
+    )
+  `);
 
   app.get("/api/sessions", (req, res) => {
-    const clientId = req.headers["x-client-id"] || "anonymous";
-    const store = getSessionsStore();
-    const sessions = Object.values(store)
-      .filter((s: any) => s.clientId === clientId)
-      .sort((a: any, b: any) => b.updatedAt - a.updatedAt);
-    res.json(sessions);
+    try {
+      const clientId = req.headers["x-client-id"] || "anonymous";
+      const rows = db.prepare("SELECT * FROM sessions WHERE clientId = ? ORDER BY updatedAt DESC").all(clientId);
+      const sessions = rows.map((row: any) => ({
+        ...row,
+        messages: JSON.parse(row.messages || "[]")
+      }));
+      res.json(sessions);
+    } catch (e: any) {
+      console.error("GET sessions error:", e);
+      res.status(500).json({ error: "Server error" });
+    }
   });
 
   app.post("/api/sessions", (req, res) => {
@@ -48,28 +47,53 @@ async function startServer() {
     const { id, title, updatedAt, messages } = req.body;
     if (!id) return res.status(400).json({ error: "Missing session id" });
     
-    const store = getSessionsStore();
-    if (store[id] && store[id].clientId && store[id].clientId !== clientId) {
-      return res.status(403).json({ error: "Forbidden" });
+    try {
+      const existingInfo = db.prepare("SELECT clientId FROM sessions WHERE id = ?").get(id) as any;
+      if (existingInfo && existingInfo.clientId && existingInfo.clientId !== clientId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      
+      const stmt = db.prepare(`
+        INSERT INTO sessions (id, clientId, title, updatedAt, messages)
+        VALUES (@id, @clientId, @title, @updatedAt, @messages)
+        ON CONFLICT(id) DO UPDATE SET 
+          title = excluded.title, 
+          updatedAt = excluded.updatedAt, 
+          messages = excluded.messages
+      `);
+      
+      stmt.run({
+        id, 
+        clientId, 
+        title: title || "新会话", 
+        updatedAt: updatedAt || Date.now(), 
+        messages: JSON.stringify(messages || [])
+      });
+      
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("POST session error:", err);
+      res.status(500).json({ error: "Server error" });
     }
-    store[id] = { id, title: title || "新会话", updatedAt: updatedAt || Date.now(), messages: messages || [], clientId };
-    saveSessionsStore(store);
-    
-    res.json({ success: true });
   });
 
   app.delete("/api/sessions/:id", (req, res) => {
     const clientId = req.headers["x-client-id"] || "anonymous";
     const { id } = req.params;
-    const store = getSessionsStore();
-    if (store[id]) {
-       if (store[id].clientId && store[id].clientId !== clientId) {
-           return res.status(403).json({ error: "Forbidden" });
-       }
-       delete store[id];
-       saveSessionsStore(store);
+    
+    try {
+      const existingInfo = db.prepare("SELECT clientId FROM sessions WHERE id = ?").get(id) as any;
+      if (existingInfo) {
+        if (existingInfo.clientId && existingInfo.clientId !== clientId) {
+          return res.status(403).json({ error: "Forbidden" });
+        }
+        db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+      }
+      res.json({ success: true });
+    } catch(err: any) {
+      console.error("DELETE session error:", err);
+      res.status(500).json({ error: "Server error" });
     }
-    res.json({ success: true });
   });
 
   // API Route for chat
@@ -101,24 +125,25 @@ async function startServer() {
 
       let systemPrompt = "You are a helpful conversational AI.";
       
+      const abortController = new AbortController();
+      req.on('close', () => {
+         abortController.abort();
+      });
+      
       if (isWebSearchMode && messages.length > 0) {
          try {
-             res.write(`data: ${JSON.stringify({ text: " *[正在连网检索...]* " })}\n\n`);
-             
              console.log("Starting DuckDuckGo search...");
              const lastUserMsg = messages[messages.length - 1].text;
-             const controller = new AbortController();
-             const timeoutId = setTimeout(() => controller.abort(), 3500);
+             const ddgController = new AbortController();
+             const timeoutId = setTimeout(() => ddgController.abort(), 3500);
              
              const ddgRes = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(lastUserMsg)}`, {
                  headers: {
                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64 AppleWebKit/537.36)"
                  },
-                 signal: controller.signal
+                 signal: ddgController.signal
              });
              clearTimeout(timeoutId);
-             
-             res.write(`data: ${JSON.stringify({ text: "\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b" })}\n\n`); // Try to backspace the indicator, or we just let it be. Actually, just adding it to the start is fine. Wait, let's just let it be part of the text or we can just not output it if we modify the frontend. Let's just output it!
 
              if (ddgRes.ok) {
                  const html = await ddgRes.text();
@@ -177,6 +202,7 @@ async function startServer() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
+        signal: abortController.signal
       });
 
       if (!response.ok) {

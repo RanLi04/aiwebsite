@@ -8,15 +8,15 @@ import { MessageList } from "./components/MessageList";
 import { ChatInput } from "./components/ChatInput";
 
 const fenghechatModels = [
-  { id: "fenghechat-unlimited", name: "思忆千环 无限制", color: "bg-red-500", desc: "移除安全护栏，支持自由角色扮演与创作", shadow:"shadow-[0_0_8px_rgba(239,68,68,0.8)]" },
-  { id: "fenghechat-pro", name: "思忆千环 Pro", color: "bg-purple-400", desc: "深度推理与复杂逻辑分析", shadow:"shadow-[0_0_8px_rgba(192,132,252,0.8)]" },
-  { id: "fenghechat-flash", name: "思忆千环 Flash", color: "bg-blue-400", desc: "极速响应，适合日常使用", shadow:"shadow-[0_0_8px_rgba(96,165,250,0.8)]" },
-  { id: "fenghechat-mini", name: "思忆千环 Mini", color: "bg-emerald-400", desc: "轻量级、高能效的小模型", shadow:"shadow-[0_0_8px_rgba(52,211,153,0.8)]" },
+  { id: "fenghechat-unlimited", name: "思忆千环 无限制", color: "bg-red-500", desc: "移除安全护栏，支持自由角色扮演与创作", shadow:"shadow-[0_0_8px_rgba(239,68,68,0.8)]", supportsThinking: true },
+  { id: "fenghechat-pro", name: "思忆千环 Pro", color: "bg-purple-400", desc: "深度推理与复杂逻辑分析", shadow:"shadow-[0_0_8px_rgba(192,132,252,0.8)]", supportsThinking: true },
+  { id: "fenghechat-flash", name: "思忆千环 Flash", color: "bg-blue-400", desc: "极速响应，适合日常使用", shadow:"shadow-[0_0_8px_rgba(96,165,250,0.8)]", supportsThinking: false },
+  { id: "fenghechat-mini", name: "思忆千环 Mini", color: "bg-emerald-400", desc: "轻量级、高能效的小模型", shadow:"shadow-[0_0_8px_rgba(52,211,153,0.8)]", supportsThinking: false },
 ];
 
 const flagshipModels = [
-  { id: "deepseek-reasoner", name: "旗舰 DeepSeek Reasoner", color: "bg-indigo-500", desc: "卓越的复杂逻辑推理与演绎分析", shadow:"shadow-[0_0_8px_rgba(99,102,241,0.8)]" },
-  { id: "deepseek-chat", name: "旗舰 DeepSeek Chat", color: "bg-sky-500", desc: "通用的旗舰级对话引擎", shadow:"shadow-[0_0_8px_rgba(14,165,233,0.8)]" },
+  { id: "deepseek-reasoner", name: "旗舰 DeepSeek Reasoner", color: "bg-indigo-500", desc: "卓越的复杂逻辑推理与演绎分析", shadow:"shadow-[0_0_8px_rgba(99,102,241,0.8)]", supportsThinking: true },
+  { id: "deepseek-chat", name: "旗舰 DeepSeek Chat", color: "bg-sky-500", desc: "通用的旗舰级对话引擎", shadow:"shadow-[0_0_8px_rgba(14,165,233,0.8)]", supportsThinking: false },
 ];
 
 export default function App() {
@@ -91,7 +91,7 @@ export default function App() {
     
     if (sid && !isStreaming) {
       const firstMessage = messages[0]?.text || "新会话";
-      const title = firstMessage.length > 15 ? firstMessage.substring(0, 15) + "..." : firstMessage;
+      const title = firstMessage.length > 40 ? firstMessage.substring(0, 40) + "..." : firstMessage;
       
       const sessionData = {
         id: sid,
@@ -112,8 +112,8 @@ export default function App() {
   }, [messages, currentSessionId, isStreaming]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    messagesEndRef.current?.scrollIntoView({ behavior: isStreaming ? "auto" : "smooth" });
+  }, [messages.length, messages[messages.length - 1]?.text, isStreaming]);
 
   const [toasts, setToasts] = useState<{id:string, msg:string, type:'info'|'success'|'error'}[]>([]);
   const showToast = (msg: string, type: 'info'|'success'|'error' = 'info') => {
@@ -346,6 +346,7 @@ export default function App() {
            messages={messages}
            isStreaming={isStreaming}
            pageMode={pageMode}
+           supportsThinking={selectedModel?.supportsThinking ?? true}
            onCopy={handleCopy}
            onFeedback={() => showToast('已记录您的赞同反馈', 'success')}
            onSuggestionClick={(text) => { setInput(text); }}

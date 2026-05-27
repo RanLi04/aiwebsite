@@ -32,16 +32,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       <div className="max-w-3xl mx-auto relative pointer-events-auto">
         <div className="relative flex items-end gap-2 glass-panel rounded-[24px] p-1.5 shadow-[0_10px_40px_rgba(0,0,0,0.05)] dark:shadow-[0_10px_40px_rgba(0,0,0,0.6)] focus-within:border-black/20 dark:focus-within:border-white/30 transition-all duration-300 bg-white/50 dark:bg-black/50">
           
-          <button onClick={() => showToast('正在调起文件选择器...')} className="p-2.5 opacity-50 hover:opacity-100 rounded-full hover:bg-black/5 dark:hover:bg-white/10 flex-shrink-0 active:scale-95 transition-all outline-none" title="添加附件">
-            <Paperclip className="h-[22px] w-[22px]" />
-          </button>
-          
           <button 
             onClick={() => {
               setIsWebSearchMode(!isWebSearchMode);
               showToast(isWebSearchMode ? '已关闭联网搜索' : '已开启实时联网搜索', isWebSearchMode ? 'info' : 'success');
             }} 
-            className={cn("p-2.5 rounded-full flex-shrink-0 active:scale-95 transition-all outline-none hidden sm:block", isWebSearchMode ? "bg-blue-500/10 text-blue-600 dark:text-blue-400" : "opacity-50 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10")} 
+            className={cn("p-2.5 rounded-full flex-shrink-0 active:scale-95 transition-all outline-none", isWebSearchMode ? "bg-blue-500/10 text-blue-600 dark:text-blue-400" : "opacity-50 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10")} 
             title="开启联网搜索"
           >
             <Globe className="h-[22px] w-[22px]" />

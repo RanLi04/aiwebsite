@@ -8,11 +8,12 @@ interface MessageBubbleProps {
   msg: Message;
   isStreaming: boolean;
   isLast: boolean;
+  supportsThinking: boolean;
   onCopy: (text: string) => void;
   onFeedback: () => void;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ msg, isStreaming, isLast, onCopy, onFeedback }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ msg, isStreaming, isLast, supportsThinking, onCopy, onFeedback }) => {
   return (
     <div className={cn("flex w-full animate-in fade-in slide-in-from-bottom-2", msg.role === "user" ? "justify-end" : "justify-start")}>
       {msg.role === "model" && (
@@ -31,7 +32,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ msg, isStreaming, 
           )}
         >
           {msg.role === "model" ? (
-            <ThinkingBlock text={msg.text} isStreaming={isStreaming} isLast={isLast} />
+            <ThinkingBlock text={msg.text} isStreaming={isStreaming} isLast={isLast} supportsThinking={supportsThinking} />
           ) : (
             <div className="whitespace-pre-wrap">{msg.text}</div>
           )}

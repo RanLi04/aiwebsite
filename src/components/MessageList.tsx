@@ -8,6 +8,7 @@ interface MessageListProps {
   messages: Message[];
   isStreaming: boolean;
   pageMode: PageMode;
+  supportsThinking: boolean;
   onCopy: (text: string) => void;
   onFeedback: () => void;
   onSuggestionClick: (text: string) => void;
@@ -18,6 +19,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   messages,
   isStreaming,
   pageMode,
+  supportsThinking,
   onCopy,
   onFeedback,
   onSuggestionClick,
@@ -77,6 +79,7 @@ export const MessageList: React.FC<MessageListProps> = ({
                 msg={msg}
                 isStreaming={isStreaming}
                 isLast={idx === messages.length - 1}
+                supportsThinking={supportsThinking}
                 onCopy={onCopy}
                 onFeedback={onFeedback}
               />

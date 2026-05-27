@@ -74,17 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             <nav className="space-y-1 px-1">
-                  <div className="text-xs font-semibold opacity-50 tracking-wider mb-2 mt-4 px-2">常用模块</div>
-                  <button onClick={() => showToast('提示词库同步中...')} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-colors group">
-                     <LayoutGrid className="h-4 w-4 opacity-50 group-hover:opacity-100" />
-                     <span className="text-sm">我的预设/提示词</span>
-                  </button>
-                  <button onClick={() => showToast('正在挂载本地向量数据库', 'success')} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-colors group">
-                     <Database className="h-4 w-4 opacity-50 group-hover:opacity-100" />
-                     <span className="text-sm">本地知识库</span>
-                  </button>
-                  
-                  <div className="text-xs font-semibold opacity-50 tracking-wider mb-2 mt-6 px-2">最近对话（已同步云端）</div>
+                  <div className="text-xs font-semibold opacity-50 tracking-wider mb-2 mt-4 px-2">最近对话（已同步云端）</div>
                   {sessions.length === 0 ? (
                     <div className="text-[11px] opacity-40 px-3 mt-4">暂无历史记录</div>
                   ) : (
@@ -100,11 +90,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                        >
                          <div className="flex items-center gap-3 overflow-hidden flex-1">
                            <MessageSquare className={cn("h-4 w-4 flex-shrink-0", currentSessionId === s.id ? "text-indigo-500" : "opacity-40 group-hover:opacity-80")} />
-                           <span className="text-sm truncate mr-2">{s.title}</span>
+                           <span className="text-sm truncate mr-2 block text-left flex-1 max-w-[140px]">{s.title}</span>
                          </div>
                          <div 
                             onClick={(e) => deleteSession(e, s.id)} 
-                            className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-black/10 dark:hover:bg-white/20 rounded-md transition-all ml-auto hover:text-red-500"
+                            className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-black/10 dark:hover:bg-white/20 rounded-md transition-all ml-auto hover:text-red-500 cursor-pointer"
+                            role="button"
+                            tabIndex={0}
                             title="删除对话"
                          >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -120,7 +112,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                <button 
                   onClick={() => {
                      setPageMode(pageMode === 'fenghechat' ? 'flagship' : 'fenghechat');
-                     setSelectedModelId(pageMode === 'fenghechat' ? 'deepseek-reasoner' : 'fenghechat-pro');
                   }}
                   className={cn("h-12 w-12 rounded-full flex items-center justify-center border transition-all active:scale-95 mb-1.5", pageMode === 'flagship' ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-500 border-indigo-500/30 shadow-[0_0_12px_rgba(99,102,241,0.2)]" : "bg-black/5 dark:bg-white/5 border-transparent opacity-60 hover:opacity-100 hover:border-black/10 dark:hover:border-white/10")}
                   title={pageMode === 'fenghechat' ? "切换至 DeepSeek" : "切换至 思忆千环"}
@@ -131,12 +122,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             <div className="flex gap-2">
-               <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-colors active:scale-95">
+               <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-colors active:scale-95">
                      {theme === 'dark' ? <><Sun className="h-4 w-4 opacity-70" /><span className="text-sm">浅色模式</span></> : <><Moon className="h-4 w-4 opacity-70" /><span className="text-sm">深色模式</span></>}
-               </button>
-               <button onClick={() => showToast('高级设置面板即将开放')} className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-colors active:scale-95">
-                     <Settings className="h-4 w-4 opacity-70" />
-                     <span className="text-sm">设置</span>
                </button>
             </div>
             <div onClick={() => showToast('您的本地私钥已安全验证', 'success')} className="flex items-center justify-between p-3 rounded-xl bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 hover:border-black/10 dark:hover:border-white/20 transition-colors cursor-pointer shadow-inner active:scale-95">

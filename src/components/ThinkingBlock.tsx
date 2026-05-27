@@ -4,7 +4,7 @@ import { cn } from "../utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-export const ThinkingBlock = React.memo(function MessageContent({ text, isStreaming, isLast }: { text: string, isStreaming: boolean, isLast: boolean }) {
+export const ThinkingBlock = React.memo(function MessageContent({ text, isStreaming, isLast, supportsThinking }: { text: string, isStreaming: boolean, isLast: boolean, supportsThinking: boolean }) {
   const thinkStart = text.indexOf("<think>");
   const thinkEnd = text.indexOf("</think>", thinkStart);
   
@@ -34,9 +34,9 @@ export const ThinkingBlock = React.memo(function MessageContent({ text, isStream
   }
 
   // Determine if we should show the thinking block. 
-  // If it's streaming and we haven't received anything yet, we can pretend it's thinking to give the user peace of mind.
-  const showThinkingBlock = thinkStart !== -1 || (isStreaming && !text);
-  const isCurrentlyThinking = isThinking || (isStreaming && !text);
+  // If it's streaming and we haven't received anything yet, we can pretend it's thinking to give the user peace of mind, IF the model supports thinking natively.
+  const showThinkingBlock = thinkStart !== -1 || (isStreaming && !text && supportsThinking);
+  const isCurrentlyThinking = isThinking || (isStreaming && !text && supportsThinking);
 
   return (
     <div className="flex flex-col gap-3 w-full">
