@@ -1,0 +1,6 @@
+{
+  "name": "思忆千环",
+  "description": "An AI conversation frontend supporting streaming output with frosted glass UI and RGB backgrounds.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
