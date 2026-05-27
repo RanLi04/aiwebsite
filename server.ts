@@ -82,15 +82,17 @@ async function startServer() {
       }
 
       // Map user selected UI models
-      const modelMap: Record<string, string> = {
-        "fenghechat-unlimited": "huihui_ai/gemma-4-abliterated:26b",
-        "fenghechat-pro": "huihui_ai/gemma-4-abliterated:26b",
-        "fenghechat-flash": "gemma3:12b",
-        "fenghechat-mini": "gemma3:4b",
-        "deepseek-reasoner": "gemma3:27b",
-        "deepseek-chat": "gemma3:27b",
+      const modelMap: Record<string, { name: string, temperature?: number, top_p?: number, top_k?: number }> = {
+        "fenghechat-unlimited": { name: "huihui_ai/gemma-4-abliterated:26b", temperature: 1.1, top_p: 0.95, top_k: 50 },
+        "fenghechat-pro": { name: "huihui_ai/gemma-4-abliterated:26b", temperature: 0.7, top_p: 0.9, top_k: 40 },
+        "fenghechat-flash": { name: "gemma3:12b", temperature: 0.6, top_p: 0.9, top_k: 40 },
+        "fenghechat-mini": { name: "gemma3:4b", temperature: 0.5, top_p: 0.85, top_k: 40 },
+        "deepseek-reasoner": { name: "deepseek-reasoner", temperature: 0.5, top_p: 0.9, top_k: 40 },
+        "deepseek-chat": { name: "deepseek-chat", temperature: 0.7, top_p: 0.9, top_k: 40 },
       };
-      const localModel = modelMap[modelId] || "gemma3:12b";
+      
+      const modelConfig = modelMap[modelId] || { name: "gemma3:12b", temperature: 0.6, top_p: 0.9 };
+      const localModel = modelConfig.name;
 
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
@@ -159,14 +161,22 @@ async function startServer() {
       // 2. CONNECT TO OLLAMA (Local)
       const baseURL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1";
 
+      const requestBody: any = {
+        model: localModel,
+        messages: formattedMessages,
+        stream: true,
+        temperature: modelConfig.temperature,
+        top_p: modelConfig.top_p,
+      };
+      
+      if (modelConfig.top_k !== undefined) {
+         requestBody.top_k = modelConfig.top_k;
+      }
+
       const response = await fetch(`${baseURL}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: localModel,
-          messages: formattedMessages,
-          stream: true,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -219,9 +229,9 @@ async function startServer() {
                textOut += delta.reasoning_content;
             }
             
-            // If delta.content starts showing up, and we were thinking with native reasoning_content, close the think tag.
-            // Some models might send content and reasoning_content in the same delta, but just in case:
-            if (delta.content !== undefined && delta.content !== null) {
+            // If delta.content starts showing up (and is not just empty), and we were thinking with native reasoning_content, close the think tag.
+            // Some APIs send content: "" alongside reasoning_content, which shouldn't close the tag.
+            if (delta.content !== undefined && delta.content !== null && delta.content !== "") {
                if (hasStartedThinking && !hasEndedThinking) {
                    textOut += "\n</think>\n\n";
                    hasEndedThinking = true;
