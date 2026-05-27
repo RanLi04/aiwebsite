@@ -100,13 +100,9 @@ async function startServer() {
       // 2. CONNECT TO OLLAMA (Local)
       const baseURL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1";
 
-      const controller = new AbortController();
-      req.on('close', () => controller.abort());
-
       const response = await fetch(`${baseURL}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
         body: JSON.stringify({
           model: localModel,
           messages: formattedMessages,
@@ -190,8 +186,14 @@ async function startServer() {
       res.write("data: [DONE]\n\n");
       res.end();
     } catch (error: any) {
+      if (error.name === "AbortError" || error.message?.includes("aborted")) {
+        console.log("Chat streaming aborted by client.");
+        return res.end();
+      }
       console.error("Chat API error:", error);
-      res.status(500).json({ error: error.message || "Something went wrong" });
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message || "Something went wrong" });
+      }
     }
   });
 
