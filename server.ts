@@ -1,21 +1,42 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import fs from "fs";
 
 dotenv.config();
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: "10mb" }));
 
-  const sessionsStore = new Map<string, any>();
+  const SESSIONS_FILE = path.join(process.cwd(), "sessions.json");
+  
+  const getSessionsStore = (): Record<string, any> => {
+    try {
+      if (fs.existsSync(SESSIONS_FILE)) {
+        const data = fs.readFileSync(SESSIONS_FILE, "utf-8");
+        return JSON.parse(data);
+      }
+    } catch(e) {
+      console.error("Error reading sessions file:", e);
+    }
+    return {};
+  };
+
+  const saveSessionsStore = (store: Record<string, any>) => {
+    try {
+      fs.writeFileSync(SESSIONS_FILE, JSON.stringify(store, null, 2), "utf-8");
+    } catch(e) {
+      console.error("Error writing sessions file:", e);
+    }
+  };
 
   app.get("/api/sessions", (req, res) => {
-    const sessions = Array.from(sessionsStore.values()).sort((a,b) => b.updatedAt - a.updatedAt);
+    const store = getSessionsStore();
+    const sessions = Object.values(store).sort((a: any, b: any) => b.updatedAt - a.updatedAt);
     res.json(sessions);
   });
 
@@ -23,14 +44,17 @@ async function startServer() {
     const { id, title, updatedAt, messages } = req.body;
     if (!id) return res.status(400).json({ error: "Missing session id" });
     
-    sessionsStore.set(id, { id, title: title || "新会话", updatedAt: updatedAt || Date.now(), messages: messages || [] });
+    const store = getSessionsStore();
+    store[id] = { id, title: title || "新会话", updatedAt: updatedAt || Date.now(), messages: messages || [] };
+    saveSessionsStore(store);
+    
     res.json({ success: true });
   });
 
   // API Route for chat
   app.post("/api/chat", async (req, res) => {
     try {
-      const { messages, modelId } = req.body;
+      const { messages, modelId, isWebSearchMode } = req.body;
       
       if (!messages || messages.length === 0) {
         return res.status(400).json({ error: "No messages provided." });
@@ -47,9 +71,26 @@ async function startServer() {
       };
       const localModel = modelMap[modelId] || "gemma3:12b";
 
+      let systemPrompt = "You are a helpful conversational AI.";
+      
+      if (isWebSearchMode && messages.length > 0) {
+         try {
+             const lastUserMsg = messages[messages.length - 1].text;
+             const jinaRes = await fetch(`https://s.jina.ai/?q=${encodeURIComponent(lastUserMsg)}`, {
+                 headers: { "Accept": "text/plain" }
+             });
+             if (jinaRes.ok) {
+                 const searchResults = await jinaRes.text();
+                 systemPrompt += `\n\n[Search Results for Context]\n${searchResults}\n\nPlease use the above recent information to help answer the user's query if it is relevant.`;
+             }
+         } catch (e) {
+             console.error("Jina Search error:", e);
+         }
+      }
+
       // 1. FORMAT MESSAGES
       const formattedMessages = [
-        { role: "system", content: "You are a helpful conversational AI." },
+        { role: "system", content: systemPrompt },
         ...messages.map((m: any) => ({
           role: m.role === "model" ? "assistant" : "user",
           content: m.text,
@@ -59,9 +100,13 @@ async function startServer() {
       // 2. CONNECT TO OLLAMA (Local)
       const baseURL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1";
 
+      const controller = new AbortController();
+      req.on('close', () => controller.abort());
+
       const response = await fetch(`${baseURL}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           model: localModel,
           messages: formattedMessages,

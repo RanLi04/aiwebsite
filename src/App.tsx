@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Message, Theme, PageMode, Session } from "./types";
-import { Send, Moon, Sun, Monitor, Menu, Sparkles, X, Plus, Edit, LayoutGrid, Database, MessageSquare, Settings, Lock, Paperclip, Globe, CheckCircle2, AlertCircle, Info, Copy, ThumbsUp, ChevronDown, Code, BarChart, BookOpen, Languages, Aperture } from "lucide-react";
+import { Send, Moon, Sun, Menu, Sparkles, X, Plus, Edit, LayoutGrid, Database, MessageSquare, Settings, Lock, Paperclip, Globe, CheckCircle2, AlertCircle, Info, Copy, ThumbsUp, ChevronDown, Code, BarChart, BookOpen, Languages, Aperture } from "lucide-react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import ReactMarkdown from "react-markdown";
@@ -14,22 +14,23 @@ function MessageContentComponent({ text, isStreaming, isLast }: { text: string, 
   const thinkStart = text.indexOf("<think>");
   const thinkEnd = text.indexOf("</think>", thinkStart);
   
-  const isThinking = isStreaming && isLast && thinkStart !== -1 && thinkEnd === -1;
+  const thinkComplete = thinkEnd !== -1;
+  const isThinking = isStreaming && isLast && thinkStart !== -1 && !thinkComplete;
   const [isExpanded, setIsExpanded] = useState(false);
   
   useEffect(() => {
     if (isThinking) {
       setIsExpanded(true);
-    } else if (thinkEnd !== -1 && isLast && isStreaming) {
+    } else if (thinkComplete && isLast && isStreaming) {
       setIsExpanded(false);
     }
-  }, [isThinking, thinkEnd !== -1, isLast, isStreaming]);
+  }, [isThinking, thinkComplete, isLast, isStreaming]);
 
   let thinkText = "";
   let mainText = text;
   
   if (thinkStart !== -1) {
-    if (thinkEnd !== -1) {
+    if (thinkComplete) {
       thinkText = text.substring(thinkStart + 7, thinkEnd).trim();
       mainText = (text.substring(0, thinkStart) + text.substring(thinkEnd + 8)).trim();
     } else {
@@ -76,23 +77,24 @@ function MessageContentComponent({ text, isStreaming, isLast }: { text: string, 
   );
 }
 
+const fenghechatModels = [
+  { id: "fenghechat-unlimited", name: "思忆千环 无限制", color: "bg-red-500", desc: "移除安全护栏，支持自由角色扮演与创作", shadow:"shadow-[0_0_8px_rgba(239,68,68,0.8)]" },
+  { id: "fenghechat-pro", name: "思忆千环 Pro", color: "bg-purple-400", desc: "深度推理与复杂逻辑分析", shadow:"shadow-[0_0_8px_rgba(192,132,252,0.8)]" },
+  { id: "fenghechat-flash", name: "思忆千环 Flash", color: "bg-blue-400", desc: "极速响应，适合日常使用", shadow:"shadow-[0_0_8px_rgba(96,165,250,0.8)]" },
+  { id: "fenghechat-mini", name: "思忆千环 Mini", color: "bg-emerald-400", desc: "轻量级、高能效的小模型", shadow:"shadow-[0_0_8px_rgba(52,211,153,0.8)]" },
+];
+
+const flagshipModels = [
+  { id: "deepseek-reasoner", name: "旗舰 DeepSeek Reasoner", color: "bg-indigo-500", desc: "卓越的复杂逻辑推理与演绎分析", shadow:"shadow-[0_0_8px_rgba(99,102,241,0.8)]" },
+  { id: "deepseek-chat", name: "旗舰 DeepSeek Chat", color: "bg-sky-500", desc: "通用的旗舰级对话引擎", shadow:"shadow-[0_0_8px_rgba(14,165,233,0.8)]" },
+];
+
 export default function App() {
   const [theme, setTheme] = useState<Theme>("dark");
   const [pageMode, setPageMode] = useState<PageMode>("fenghechat");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   // Model mapping
-  const fenghechatModels = [
-    { id: "fenghechat-unlimited", name: "思忆千环 无限制", color: "bg-red-500", desc: "移除安全护栏，支持自由角色扮演与创作", shadow:"shadow-[0_0_8px_rgba(239,68,68,0.8)]" },
-    { id: "fenghechat-pro", name: "思忆千环 Pro", color: "bg-purple-400", desc: "深度推理与复杂逻辑分析", shadow:"shadow-[0_0_8px_rgba(192,132,252,0.8)]" },
-    { id: "fenghechat-flash", name: "思忆千环 Flash", color: "bg-blue-400", desc: "极速响应，适合日常使用", shadow:"shadow-[0_0_8px_rgba(96,165,250,0.8)]" },
-    { id: "fenghechat-mini", name: "思忆千环 Mini", color: "bg-emerald-400", desc: "轻量级、高能效的小模型", shadow:"shadow-[0_0_8px_rgba(52,211,153,0.8)]" },
-  ];
-  const flagshipModels = [
-    { id: "deepseek-reasoner", name: "旗舰 DeepSeek Reasoner", color: "bg-indigo-500", desc: "卓越的复杂逻辑推理与演绎分析", shadow:"shadow-[0_0_8px_rgba(99,102,241,0.8)]" },
-    { id: "deepseek-chat", name: "旗舰 DeepSeek Chat", color: "bg-sky-500", desc: "通用的旗舰级对话引擎", shadow:"shadow-[0_0_8px_rgba(14,165,233,0.8)]" },
-  ];
-
   const models = pageMode === "fenghechat" ? fenghechatModels : flagshipModels;
   const [selectedModelId, setSelectedModelId] = useState(models[0].id);
   const selectedModel = models.find(m => m.id === selectedModelId) || models[0];
@@ -118,6 +120,7 @@ export default function App() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchSessions = async () => {
     try {
@@ -126,7 +129,9 @@ export default function App() {
         const data = await res.json();
         setSessions(data);
       }
-    } catch(e) {}
+    } catch(e) {
+      showToast("获取历史会话失败", "error");
+    }
   };
 
   useEffect(() => {
@@ -139,7 +144,7 @@ export default function App() {
     
     let sid = currentSessionId;
     if (messages.length > 0 && !sid) {
-      sid = Date.now().toString();
+      sid = crypto.randomUUID();
       setCurrentSessionId(sid);
     }
     
@@ -159,7 +164,7 @@ export default function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(sessionData)
-        }).then(() => fetchSessions()).catch(() => {});
+        }).then(() => fetchSessions()).catch(() => showToast("自动保存会话失败", "error"));
       }, 500); // debounce save
       return () => clearTimeout(timer);
     }
@@ -171,7 +176,7 @@ export default function App() {
 
   const [toasts, setToasts] = useState<{id:string, msg:string, type:'info'|'success'|'error'}[]>([]);
   const showToast = (msg: string, type: 'info'|'success'|'error' = 'info') => {
-    const id = Date.now().toString();
+    const id = crypto.randomUUID();
     setToasts(prev => [...prev, { id, msg, type }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
@@ -181,7 +186,7 @@ export default function App() {
   const handleSend = () => {
     if (!input.trim() || isStreaming) return;
 
-    const userMessage: Message = { id: Date.now().toString(), role: "user", text: input.trim() };
+    const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: input.trim() };
     const currentMessages = [...messages, userMessage];
     setMessages(currentMessages);
     setInput("");
@@ -190,17 +195,20 @@ export default function App() {
     }
     setIsStreaming(true);
 
-    const modelMessageId = (Date.now() + 1).toString();
+    const modelMessageId = crypto.randomUUID();
     setMessages((prev) => [...prev, { id: modelMessageId, role: "model", text: "" }]);
 
     const fetchChat = async () => {
        try {
+          abortControllerRef.current = new AbortController();
           const res = await fetch("/api/chat", {
              method: "POST",
              headers: { "Content-Type": "application/json" },
+             signal: abortControllerRef.current.signal,
              body: JSON.stringify({ 
                 modelId: selectedModelId,
-                messages: currentMessages 
+                messages: currentMessages,
+                isWebSearchMode: isWebSearchMode
              })
           });
           
@@ -240,6 +248,10 @@ export default function App() {
              }
           }
        } catch (error: any) {
+          if (error.name === 'AbortError') {
+             console.log("Chat aborted");
+             return;
+          }
           console.error("fetchChat error:", error);
           showToast(`无法连接本地引擎: ${error.message}`, 'error');
           setMessages(prev => prev.map(msg => 
@@ -247,6 +259,7 @@ export default function App() {
           ));
        } finally {
           setIsStreaming(false);
+          abortControllerRef.current = null;
        }
     };
     
@@ -258,6 +271,11 @@ export default function App() {
     : (theme === "light" ? "flagship-flow-light" : "flagship-flow-dark");
 
   const startNewChat = () => {
+     if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+        setIsStreaming(false);
+     }
      setCurrentSessionId("");
      setMessages([]);
      showToast('已开启新对话', 'success');
@@ -265,7 +283,19 @@ export default function App() {
   };
 
   const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
+    let cleanText = text;
+    while(true) {
+        const start = cleanText.indexOf("<think>");
+        const end = cleanText.indexOf("</think>", start);
+        if (start !== -1 && end !== -1) {
+            cleanText = cleanText.substring(0, start) + cleanText.substring(end + 8);
+        } else if (start !== -1) {
+            cleanText = cleanText.substring(0, start);
+        } else {
+            break;
+        }
+    }
+    navigator.clipboard.writeText(cleanText.trim() || text);
     showToast('内容已复制到剪贴板', 'success');
   };
 
@@ -587,7 +617,7 @@ export default function App() {
                         }
                      }}
                      rows={1}
-                     placeholder="给 思忆千环 发送消息..."
+                     placeholder={`给 ${selectedModel?.name || "思忆千环"} 发送消息...`}
                      className="w-full max-h-[120px] md:max-h-[200px] bg-transparent border-none focus:ring-0 resize-none py-3 placeholder:opacity-50 text-[15px] md:text-base leading-relaxed overflow-y-auto focus:outline-none"
                      style={{ minHeight: "48px" }}
                   />
